@@ -2,3 +2,4 @@ composer.lock
 .env
 node_modules
 public/hot
+vendor

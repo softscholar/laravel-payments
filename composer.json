@@ -1,0 +1,42 @@
+{
+    "name": "softscholar/laravel-payments",
+    "description": "Payment gateway service by SoftScholar",
+    "license": "MIT",
+    "keywords": [
+        "softscholar",
+        "laravel",
+        "nagad",
+        "payment",
+        "gateway",
+        "tokenization"
+    ],
+    "authors": [
+        {
+            "name": "Atiqur Rahman",
+            "email": "atiq@softscholar.com",
+            "homepage": "https://softscholar.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "require": {
+        "php": "^8.0"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "autoload": {
+        "psr-4": {
+            "Softscholar\\Payment\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Softscholar\\Payment\\PaymentServiceProvider"
+            ]
+        }
+    },
+    "require-dev": {
+        "laravel/pint": "dev-main"
+    }
+}

@@ -2,6 +2,7 @@
 
 namespace Softscholar\Payment\Services\Gateways\Nagad;
 
+use Exception;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -65,8 +66,9 @@ class NagadUtility
 
     /**
      * @throws ConnectionException
+     * @throws Exception
      */
-    public static function post(string $url, array $data = [], bool $verify = false): array
+    public static function post(string $url, array $data = [], $token=''): array
     {
         // Prepare headers
         $headers = [
@@ -75,6 +77,20 @@ class NagadUtility
             'X-KM-IP-V4' => self::getClientIp(),
             'X-KM-Client-Type' => 'PC_WEB',
         ];
+
+        if ($token) {
+            $hex = config('spayment.gateways.nagad.merchant_hex');
+            $iv = config('spayment.gateways.nagad.merchant_iv');
+
+            $token = (new NagadUtility)->decryptToken($token, $hex, $iv);
+            $headers['X-KM-Payment-Token'] = $token;
+        }
+
+        if (config('spayment.gateways.nagad.ssl_verify') === false) {
+            $verify = false;
+        } else {
+            $verify = true;
+        }
 
         // Make the POST request using Laravel Http client
         $response = Http::withHeaders($headers)
@@ -116,6 +132,33 @@ class NagadUtility
             ->get($url);
 
         return $response->json();
+    }
+
+    /**
+     * @throws Exception
+     */
+    public function decryptToken(string $token, string $symmetricKey, string $iv): string
+    {
+        $tokenBytes = hex2bin($token);
+        $symmetricKeyBytes = hex2bin($symmetricKey);
+        $ivBytes = hex2bin($iv);
+
+        // Perform decryption using AES-256-CBC
+        $decryptedBytes = openssl_decrypt(
+            $tokenBytes,           // Ciphertext to decrypt
+            'aes-256-cbc',         // Cipher method
+            $symmetricKeyBytes,    // Symmetric key
+            OPENSSL_RAW_DATA,      // Options: return raw decrypted data
+            $ivBytes               // Initialization vector
+        );
+
+        // Ensure decryption was successful
+        if ($decryptedBytes === false) {
+            throw new Exception('Decryption failed.');
+        }
+
+        // Encode decrypted bytes to UTF-8 string
+        return mb_convert_encoding($decryptedBytes, 'UTF-8', 'UTF-8');
     }
 
     public static function createBalanceReference(string $key): true

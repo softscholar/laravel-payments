@@ -26,7 +26,7 @@ class Nagad implements PaymentInterface
      *
      * @throws Exception
      */
-    public function initialize(string $merchantId, string $orderId, string $purpose = 'ECOM_TXN'): array
+    public function initialize(string $merchantId, string $orderId, string $purpose = 'ECOM_TXN', $token=''): array
     {
         $dateTime = now()->format('YmdHis');
 
@@ -49,7 +49,7 @@ class Nagad implements PaymentInterface
         $url = "{$this->host}api/dfs/check-out/initialize/{$merchantId}/{$orderId}";
         $url .= '?'.http_build_query($requestParams);
 
-        return NagadUtility::post($url, $checkoutData);
+        return NagadUtility::post($url, $checkoutData, $token);
     }
 
     /**
@@ -68,7 +68,7 @@ class Nagad implements PaymentInterface
         $merchantId = config('spayment.gateways.nagad.merchant_id');
         $purpose = 'ECOM_TXN';
 
-        if (config('spayment.gateways.nagad.tokenization')) {
+        if (config('spayment.gateways.nagad.tokenization') || $data['tokenization'] ?? false) {
             $this->merchantAdditionalInfo['tokenization'] = true;
             $purpose = 'ECOM_TOKEN_GEN';
             $data['amount'] = 0;
@@ -82,7 +82,7 @@ class Nagad implements PaymentInterface
                 $this->completeCheckout($merchantId, $orderId, $responseData, $data);
             }
         } else {
-            throw new Exception('Failed to initialize payment');
+            throw new Exception($initialResponse['message']);
         }
     }
 
@@ -91,7 +91,7 @@ class Nagad implements PaymentInterface
      *
      * @throws Exception
      */
-    public function completeCheckout(string $merchantId, string $orderId, array $responseData, array $paymentData): void
+    public function completeCheckout(string $merchantId, string $orderId, array $responseData, array $paymentData, $token=''): void
     {
         $paymentRefId = $responseData['paymentReferenceId'];
         $challenge = $responseData['challenge'];
@@ -121,24 +121,104 @@ class Nagad implements PaymentInterface
         ];
 
         $orderSubmitUrl = "{$this->host}api/dfs/check-out/complete/{$paymentRefId}";
-        $resultDataOrder = NagadUtility::post($orderSubmitUrl, $postDataOrder);
+        $resultDataOrder = NagadUtility::post($orderSubmitUrl, $postDataOrder, $token);
 
         if (isset($resultDataOrder['status']) && $resultDataOrder['status'] === 'Success') {
             $url = $resultDataOrder['callBackUrl'];
             echo "<script>window.open('$url', '_self')</script>";
         } else {
-            throw new Exception('Failed: '.$resultDataOrder['message']);
+            throw new Exception($resultDataOrder['message']);
         }
     }
 
-    public function refund(): void
+    /**
+     * @throws Exception
+     */
+    public function checkout(array $data, string $checkoutType = 'regular'): void
     {
-        // TODO: Implement refund() method.
+        $merchantId = config('spayment.gateways.nagad.merchant_id');
+
+        if (!$merchantId) {
+            throw new Exception('Merchant ID is required');
+        }
+
+        $orderId = $data['order_id'] ?? 'Ord_'.now()->format('YmdH').rand(1000, 10000);
+
+        if (! isset($data['callback_url'])) {
+            throw new Exception('Callback URL is required');
+        }
+
+        $purpose = 'ECOM_TXN';
+
+        if ($checkoutType == 'authorize') {
+            $purpose = 'ECOM_TOKEN_GEN';
+            $data['amount'] = 0;
+        } elseif ($checkoutType == 'tokenized') {
+            $purpose = 'ECOM_TOKEN_TXN';
+
+            if (!$data['token']) {
+                throw new Exception('Token is required for tokenized checkout');
+            }
+
+            $token = $data['token'];
+        }
+
+        $initialResponse = $this->initialize($merchantId, $orderId, $purpose, $token ?? '');
+
+        if (! empty($initialResponse['sensitiveData']) && ! empty($initialResponse['signature'])) {
+            $responseData = json_decode(NagadUtility::decryptDataWithPrivateKey($initialResponse['sensitiveData']), true);
+            if (! empty($responseData['paymentReferenceId']) && ! empty($responseData['challenge'])) {
+                if ($checkoutType == 'tokenized') {
+                    $this->completeCheckout($merchantId, $orderId, $responseData, $data, $token);
+                } else {
+                    $this->completeCheckout($merchantId, $orderId, $responseData, $data);
+                }
+            }
+        } else {
+            throw new Exception($initialResponse['message']);
+        }
     }
 
-    public function cancel(): void
+    public function isEligibleForTokenizedCheckout(string $merchantId, string $token, array $data): bool
     {
-        // TODO: Implement cancel() method.
+        $postData = [
+            'merchantId' => $merchantId,
+            'customerId' => $data['customer_id'],
+            'maskedAccNo' => $data['masked_ac_no'],
+            'tokenType' => $data['token_type'],
+            'amount' => $data['amount'],
+            'dateTime' => now()->format('YmdHis'),
+            'challenge' => NagadUtility::generateRandomString(),
+        ];
+
+        $url = "{$this->host}/api/dfs/purchase/check/eligibility";
+
+        $response = NagadUtility::post($url, $postData, false, $token);
+
+        if (isset($response['eligible']) && $response['eligible'] === true) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * @throws ConnectionException
+     */
+    public function cancelAuthorization(string $merchantId, string $token, array $data): array
+    {
+        $postData = [
+            'merchantId' => $merchantId,
+            'customerId' => $data['customer_id'],
+            'maskedAccNo' => $data['masked_ac_no'],
+            'tokenType' => $data['token_type'],
+            'dateTime' => now()->format('YmdHis'),
+            'challenge' => NagadUtility::generateRandomString(),
+        ];
+
+        $url = "{$this->host}/api/dfs/authorization/cancel";
+
+        return NagadUtility::post($url, $postData, $token);
     }
 
     /**
@@ -149,5 +229,15 @@ class Nagad implements PaymentInterface
         $url = "{$this->host}api/dfs/verify/payment/{$tnxId}";
 
         return NagadUtility::post($url);
+    }
+
+    public function refund(): void
+    {
+        // TODO: Implement refund() method.
+    }
+
+    public function cancel(): void
+    {
+        // TODO: Implement cancel() method.
     }
 }

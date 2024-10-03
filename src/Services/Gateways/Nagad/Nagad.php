@@ -191,9 +191,14 @@ class Nagad implements PaymentInterface
             'challenge' => NagadUtility::generateRandomString(),
         ];
 
-        $url = "{$this->host}/api/dfs/purchase/check/eligibility";
+        $postDataOrder = [
+            'merchantId' => $merchantId,
+            'sensitiveData' => NagadUtility::encryptDataWithPublicKey(json_encode($postData)),
+            'signature' => NagadUtility::signatureGenerate(json_encode($postData)),
+        ];
 
-        $response = NagadUtility::post($url, $postData, false, $token);
+        $url = "{$this->host}/api/dfs/purchase/check/eligibility";
+        $response = NagadUtility::post($url, $postDataOrder, false, $token);
 
         if (isset($response['eligible']) && $response['eligible'] === true) {
             return true;
@@ -216,9 +221,15 @@ class Nagad implements PaymentInterface
             'challenge' => NagadUtility::generateRandomString(),
         ];
 
+        $postDataOrder = [
+            'merchantId' => $merchantId,
+            'sensitiveData' => NagadUtility::encryptDataWithPublicKey(json_encode($postData)),
+            'signature' => NagadUtility::signatureGenerate(json_encode($postData)),
+        ];
+
         $url = "{$this->host}/api/dfs/authorization/cancel";
 
-        return NagadUtility::post($url, $postData, $token);
+        return NagadUtility::post($url, $postDataOrder, $token);
     }
 
     /**
@@ -228,7 +239,7 @@ class Nagad implements PaymentInterface
     {
         $url = "{$this->host}api/dfs/verify/payment/{$tnxId}";
 
-        return NagadUtility::post($url);
+        return NagadUtility::get($url);
     }
 
     public function refund(): void

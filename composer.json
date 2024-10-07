@@ -19,7 +19,8 @@
     ],
     "minimum-stability": "dev",
     "require": {
-        "php": "^8.0"
+        "php": "^8.0",
+        "ext-openssl": "*"
     },
     "config": {
         "sort-packages": true

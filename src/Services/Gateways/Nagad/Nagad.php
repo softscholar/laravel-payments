@@ -25,9 +25,11 @@ class Nagad implements PaymentInterface
 
         date_default_timezone_set('Asia/Dhaka');
 
-        $this->host = config('spayment.mode') === 'production'
-            ? 'http://api.nagad.com/remote-payment-gateway-1.0/'
-            : 'http://sandbox.mynagad.com:10080/remote-payment-gateway-1.0/';
+        if (config('spayment.mode') == 'production' && config('spayment.gateways.nagad.mode') == 'production') {
+            $this->host = 'https://api.nagad.com/remote-payment-gateway-1.0/';
+        } else {
+            $this->host = 'http://sandbox.mynagad.com:10080/remote-payment-gateway-1.0/';
+        }
     }
 
     /**

@@ -14,12 +14,12 @@ class Nagad implements PaymentInterface
 
     private array $merchantAdditionalInfo = [];
     public function __construct(
-        private readonly string $merchantId,
-        private readonly string $merchantPublicKey,
-        private readonly string $merchantPrivateKey,
-        private ?string         $merchantHex = '',
-        private ?string         $merchantIv = '',
-        private ?string         $merchantNumber = '',
+        private readonly string  $merchantId,
+        private readonly string  $merchantPublicKey,
+        private readonly string  $merchantPrivateKey,
+        private readonly ?string $merchantHex = '',
+        private readonly ?string $merchantIv = '',
+        private readonly ?string $merchantNumber = '',
     )
     {
 
@@ -119,7 +119,6 @@ class Nagad implements PaymentInterface
 
         if (isset($resultDataOrder['status']) && $resultDataOrder['status'] === 'Success') {
             return  $resultDataOrder['callBackUrl'];
-//            echo "<script>window.open('$url', '_self')</script>";
         } else {
             throw new Exception($resultDataOrder['message']);
         }

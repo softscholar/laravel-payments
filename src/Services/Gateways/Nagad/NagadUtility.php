@@ -27,9 +27,8 @@ class NagadUtility
     /**
      * Generate public key
      */
-    public static function encryptDataWithPublicKey(string $data): string
+    public static function encryptDataWithPublicKey(string $pgPublicKey, string $data): string
     {
-        $pgPublicKey = env('NAGAD_PG_PUBLIC_KEY');
         $public_key = "-----BEGIN PUBLIC KEY-----\n".$pgPublicKey."\n-----END PUBLIC KEY-----";
         $key_resource = openssl_get_publickey($public_key);
         openssl_public_encrypt($data, $cryptText, $key_resource);
@@ -40,9 +39,8 @@ class NagadUtility
     /**
      * Generate signature
      */
-    public static function signatureGenerate(string $data): string
+    public static function signatureGenerate(string $merchantPrivateKey, string $data): string
     {
-        $merchantPrivateKey = env('NAGAD_MERCHANT_PRIVATE_KEY');
         $private_key = "-----BEGIN RSA PRIVATE KEY-----\n".$merchantPrivateKey."\n-----END RSA PRIVATE KEY-----";
 
         openssl_sign($data, $signature, $private_key, OPENSSL_ALGO_SHA256);
@@ -55,9 +53,8 @@ class NagadUtility
         return request()->ip();
     }
 
-    public static function decryptDataWithPrivateKey(string $encryptedText): string
+    public static function decryptDataWithPrivateKey(string $merchantPrivateKey, string $encryptedText): string
     {
-        $merchantPrivateKey = env('NAGAD_MERCHANT_PRIVATE_KEY');
         $private_key = "-----BEGIN RSA PRIVATE KEY-----\n".$merchantPrivateKey."\n-----END RSA PRIVATE KEY-----";
         openssl_private_decrypt(base64_decode($encryptedText), $plain_text, $private_key);
 
@@ -68,7 +65,7 @@ class NagadUtility
      * @throws ConnectionException
      * @throws Exception
      */
-    public static function post(string $url, array $data = [], $token=''): array
+    public static function post(string $url, array $data = [], string $token='', string $hex =null, string $iv=null ): array
     {
         // Prepare headers
         $headers = [
@@ -79,10 +76,7 @@ class NagadUtility
         ];
 
         if ($token) {
-            $hex = config('spayment.gateways.nagad.merchant_hex');
-            $iv = config('spayment.gateways.nagad.merchant_iv');
-
-            $token = (new NagadUtility)->decryptToken($token, $hex, $iv);
+            $token = (new NagadUtility)->decryptToken($token, trim($hex), trim($iv)); // not working with method parameter
             $headers['X-KM-Payment-Token'] = $token;
         }
 
@@ -137,20 +131,24 @@ class NagadUtility
     /**
      * @throws Exception
      */
-    public function decryptToken(string $token, string $symmetricKey, string $iv): string
+    public function decryptToken(string $token, string $hex, string $iv): string
     {
         $tokenBytes = hex2bin($token);
-        $symmetricKeyBytes = hex2bin($symmetricKey);
+        $hexBytes = hex2bin($hex);
         $ivBytes = hex2bin($iv);
 
         // Perform decryption using AES-256-CBC
         $decryptedBytes = openssl_decrypt(
             $tokenBytes,           // Ciphertext to decrypt
             'aes-256-cbc',         // Cipher method
-            $symmetricKeyBytes,    // Symmetric key
+            $hexBytes,    // Symmetric key
             OPENSSL_RAW_DATA,      // Options: return raw decrypted data
             $ivBytes               // Initialization vector
         );
+
+        if (strlen($hex) !== 64 || strlen($iv) !== 32) {
+            throw new Exception('Invalid key or IV length.');
+        }
 
         // Ensure decryption was successful
         if ($decryptedBytes === false) {

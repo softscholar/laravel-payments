@@ -65,7 +65,7 @@ class NagadUtility
      * @throws ConnectionException
      * @throws Exception
      */
-    public static function post(string $url, array $data = [], string $token='', string $hex =null, string $iv=null ): array
+    public static function post(string $url, array $data = [], string $token = '', ?string $hex = null, ?string $iv = null): array
     {
         // Prepare headers
         $headers = [

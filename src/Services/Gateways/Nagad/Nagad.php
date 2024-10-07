@@ -13,15 +13,15 @@ class Nagad implements PaymentInterface
     private string $tnx = '';
 
     private array $merchantAdditionalInfo = [];
+
     public function __construct(
-        private readonly string  $merchantId,
-        private readonly string  $merchantPublicKey,
-        private readonly string  $merchantPrivateKey,
+        private readonly string $merchantId,
+        private readonly string $merchantPublicKey,
+        private readonly string $merchantPrivateKey,
         private readonly ?string $merchantHex = '',
         private readonly ?string $merchantIv = '',
         private readonly ?string $merchantNumber = '',
-    )
-    {
+    ) {
 
         date_default_timezone_set('Asia/Dhaka');
 
@@ -35,7 +35,7 @@ class Nagad implements PaymentInterface
      *
      * @throws Exception
      */
-    public function initialize(string $orderId, string $purpose = 'ECOM_TXN', $token=''): array
+    public function initialize(string $orderId, string $purpose = 'ECOM_TXN', $token = ''): array
     {
         $dateTime = now()->format('YmdHis');
 
@@ -59,9 +59,11 @@ class Nagad implements PaymentInterface
 
         if ($token) {
             info('called from nagad tokenized initialize');
+
             return NagadUtility::post($url, $checkoutData, $token, $this->merchantHex, $this->merchantIv);
         } else {
             info('called from nagad initialize');
+
             return NagadUtility::post($url, $checkoutData, $token);
         }
     }
@@ -71,17 +73,14 @@ class Nagad implements PaymentInterface
      *
      * @throws Exception
      */
-    public function pay(array $data)
-    {
-
-    }
+    public function pay(array $data) {}
 
     /**
      * Complete checkout process.
      *
      * @throws Exception
      */
-    public function completeCheckout(string $orderId, array $responseData, array $paymentData, $token=''): string
+    public function completeCheckout(string $orderId, array $responseData, array $paymentData, $token = ''): string
     {
         $paymentRefId = $responseData['paymentReferenceId'];
         $challenge = $responseData['challenge'];
@@ -118,7 +117,7 @@ class Nagad implements PaymentInterface
         }
 
         if (isset($resultDataOrder['status']) && $resultDataOrder['status'] === 'Success') {
-            return  $resultDataOrder['callBackUrl'];
+            return $resultDataOrder['callBackUrl'];
         } else {
             throw new Exception($resultDataOrder['message']);
         }
@@ -131,7 +130,7 @@ class Nagad implements PaymentInterface
     {
         $merchantId = $this->merchantId;
 
-        if (!$merchantId) {
+        if (! $merchantId) {
             throw new Exception('Merchant ID is required');
         }
 
@@ -150,7 +149,7 @@ class Nagad implements PaymentInterface
         } elseif ($checkoutType == 'tokenized') {
             $purpose = 'ECOM_TOKEN_TXN';
 
-            if (!$data['token']) {
+            if (! $data['token']) {
                 throw new Exception('Token is required for tokenized checkout');
             }
 
@@ -164,10 +163,12 @@ class Nagad implements PaymentInterface
             if (! empty($responseData['paymentReferenceId']) && ! empty($responseData['challenge'])) {
                 if ($checkoutType == 'tokenized') {
                     info('called from nagad toknized');
+
                     return $this->completeCheckout($orderId, $responseData, $data, $token);
                 } else {
                     info('called from nagad regular');
-                    return $this->completeCheckout( $orderId, $responseData, $data);
+
+                    return $this->completeCheckout($orderId, $responseData, $data);
                 }
             }
         } else {

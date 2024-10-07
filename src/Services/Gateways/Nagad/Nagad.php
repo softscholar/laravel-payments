@@ -13,9 +13,18 @@ class Nagad implements PaymentInterface
     private string $tnx = '';
 
     private array $merchantAdditionalInfo = [];
-
-    public function __construct()
+    public function __construct(
+        private readonly string $merchantId,
+        private readonly string $merchantPublicKey,
+        private readonly string $merchantPrivateKey,
+        private ?string         $merchantHex = '',
+        private ?string         $merchantIv = '',
+        private ?string         $merchantNumber = '',
+    )
     {
+
+        date_default_timezone_set('Asia/Dhaka');
+
         $this->host = config('spayment.mode') === 'production'
             ? 'http://api.nagad.com/remote-payment-gateway-1.0/'
             : 'http://sandbox.mynagad.com:10080/remote-payment-gateway-1.0/';
@@ -26,30 +35,35 @@ class Nagad implements PaymentInterface
      *
      * @throws Exception
      */
-    public function initialize(string $merchantId, string $orderId, string $purpose = 'ECOM_TXN', $token=''): array
+    public function initialize(string $orderId, string $purpose = 'ECOM_TXN', $token=''): array
     {
         $dateTime = now()->format('YmdHis');
 
         $sensitiveData = [
-            'merchantId' => $merchantId,
+            'merchantId' => $this->merchantId,
             'datetime' => $dateTime,
             'orderId' => $orderId,
             'challenge' => NagadUtility::generateRandomString(),
         ];
 
         $checkoutData = [
-            'accountNumber' => config('spayment.gateways.nagad.merchant_number'), // optional
             'dateTime' => $dateTime,
-            'sensitiveData' => NagadUtility::EncryptDataWithPublicKey(json_encode($sensitiveData)),
-            'signature' => NagadUtility::SignatureGenerate(json_encode($sensitiveData)),
+            'sensitiveData' => $this->getEncryptedData($sensitiveData),
+            'signature' => $this->generateSignature($sensitiveData),
         ];
 
         $requestParams = ['purpose' => $purpose];
 
-        $url = "{$this->host}api/dfs/check-out/initialize/{$merchantId}/{$orderId}";
+        $url = "{$this->host}api/dfs/check-out/initialize/{$this->merchantId}/{$orderId}";
         $url .= '?'.http_build_query($requestParams);
 
-        return NagadUtility::post($url, $checkoutData, $token);
+        if ($token) {
+            info('called from nagad tokenized initialize');
+            return NagadUtility::post($url, $checkoutData, $token, $this->merchantHex, $this->merchantIv);
+        } else {
+            info('called from nagad initialize');
+            return NagadUtility::post($url, $checkoutData, $token);
+        }
     }
 
     /**
@@ -59,31 +73,7 @@ class Nagad implements PaymentInterface
      */
     public function pay(array $data)
     {
-        $orderId = $data['order_id'] ?? 'Ord_'.now()->format('YmdH').rand(1000, 10000);
 
-        if (! isset($data['callback_url'])) {
-            throw new Exception('Callback URL is required');
-        }
-
-        $merchantId = config('spayment.gateways.nagad.merchant_id');
-        $purpose = 'ECOM_TXN';
-
-        if (config('spayment.gateways.nagad.tokenization') || $data['tokenization'] ?? false) {
-            $this->merchantAdditionalInfo['tokenization'] = true;
-            $purpose = 'ECOM_TOKEN_GEN';
-            $data['amount'] = 0;
-        }
-
-        $initialResponse = $this->initialize($merchantId, $orderId, $purpose);
-
-        if (! empty($initialResponse['sensitiveData']) && ! empty($initialResponse['signature'])) {
-            $responseData = json_decode(NagadUtility::decryptDataWithPrivateKey($initialResponse['sensitiveData']), true);
-            if (! empty($responseData['paymentReferenceId']) && ! empty($responseData['challenge'])) {
-                $this->completeCheckout($merchantId, $orderId, $responseData, $data);
-            }
-        } else {
-            throw new Exception($initialResponse['message']);
-        }
     }
 
     /**
@@ -91,14 +81,14 @@ class Nagad implements PaymentInterface
      *
      * @throws Exception
      */
-    public function completeCheckout(string $merchantId, string $orderId, array $responseData, array $paymentData, $token=''): void
+    public function completeCheckout(string $orderId, array $responseData, array $paymentData, $token=''): string
     {
         $paymentRefId = $responseData['paymentReferenceId'];
         $challenge = $responseData['challenge'];
 
         $sensitiveDataOrder = [
             'customerId' => $paymentData['customer_id'] ?? (string) rand(100000, 999999),
-            'merchantId' => $merchantId,
+            'merchantId' => $this->merchantId,
             'orderId' => $orderId,
             'currencyCode' => '050',
             'amount' => $paymentData['amount'] ?? 0,
@@ -114,18 +104,22 @@ class Nagad implements PaymentInterface
         }
 
         $postDataOrder = [
-            'sensitiveData' => NagadUtility::encryptDataWithPublicKey(json_encode($sensitiveDataOrder)),
-            'signature' => NagadUtility::signatureGenerate(json_encode($sensitiveDataOrder)),
+            'sensitiveData' => $this->getEncryptedData($sensitiveDataOrder),
+            'signature' => $this->generateSignature($sensitiveDataOrder),
             'merchantCallbackURL' => $paymentData['callback_url'],
             'additionalMerchantInfo' => (object) $this->merchantAdditionalInfo,
         ];
 
         $orderSubmitUrl = "{$this->host}api/dfs/check-out/complete/{$paymentRefId}";
-        $resultDataOrder = NagadUtility::post($orderSubmitUrl, $postDataOrder, $token);
+        if ($token) {
+            $resultDataOrder = NagadUtility::post($orderSubmitUrl, $postDataOrder, $token, $this->merchantHex, $this->merchantIv);
+        } else {
+            $resultDataOrder = NagadUtility::post($orderSubmitUrl, $postDataOrder, $token);
+        }
 
         if (isset($resultDataOrder['status']) && $resultDataOrder['status'] === 'Success') {
-            $url = $resultDataOrder['callBackUrl'];
-            echo "<script>window.open('$url', '_self')</script>";
+            return  $resultDataOrder['callBackUrl'];
+//            echo "<script>window.open('$url', '_self')</script>";
         } else {
             throw new Exception($resultDataOrder['message']);
         }
@@ -134,9 +128,9 @@ class Nagad implements PaymentInterface
     /**
      * @throws Exception
      */
-    public function checkout(array $data, string $checkoutType = 'regular'): void
+    public function checkout(array $data, string $checkoutType = 'regular'): string
     {
-        $merchantId = config('spayment.gateways.nagad.merchant_id');
+        $merchantId = $this->merchantId;
 
         if (!$merchantId) {
             throw new Exception('Merchant ID is required');
@@ -149,6 +143,7 @@ class Nagad implements PaymentInterface
         }
 
         $purpose = 'ECOM_TXN';
+        $token = '';
 
         if ($checkoutType == 'authorize') {
             $purpose = 'ECOM_TOKEN_GEN';
@@ -163,15 +158,17 @@ class Nagad implements PaymentInterface
             $token = $data['token'];
         }
 
-        $initialResponse = $this->initialize($merchantId, $orderId, $purpose, $token ?? '');
+        $initialResponse = $this->initialize($orderId, $purpose, $token);
 
         if (! empty($initialResponse['sensitiveData']) && ! empty($initialResponse['signature'])) {
-            $responseData = json_decode(NagadUtility::decryptDataWithPrivateKey($initialResponse['sensitiveData']), true);
+            $responseData = $this->getDecryptedData($initialResponse['sensitiveData']);
             if (! empty($responseData['paymentReferenceId']) && ! empty($responseData['challenge'])) {
                 if ($checkoutType == 'tokenized') {
-                    $this->completeCheckout($merchantId, $orderId, $responseData, $data, $token);
+                    info('called from nagad toknized');
+                    return $this->completeCheckout($orderId, $responseData, $data, $token);
                 } else {
-                    $this->completeCheckout($merchantId, $orderId, $responseData, $data);
+                    info('called from nagad regular');
+                    return $this->completeCheckout( $orderId, $responseData, $data);
                 }
             }
         } else {
@@ -179,10 +176,10 @@ class Nagad implements PaymentInterface
         }
     }
 
-    public function isEligibleForTokenizedCheckout(string $merchantId, string $token, array $data): bool
+    public function isEligibleForTokenizedCheckout(string $token, array $data): bool
     {
         $postData = [
-            'merchantId' => $merchantId,
+            'merchantId' => $this->merchantId,
             'customerId' => $data['customer_id'],
             'maskedAccNo' => $data['masked_ac_no'],
             'tokenType' => $data['token_type'],
@@ -192,9 +189,9 @@ class Nagad implements PaymentInterface
         ];
 
         $postDataOrder = [
-            'merchantId' => $merchantId,
-            'sensitiveData' => NagadUtility::encryptDataWithPublicKey(json_encode($postData)),
-            'signature' => NagadUtility::signatureGenerate(json_encode($postData)),
+            'merchantId' => $this->merchantId,
+            'sensitiveData' => $this->getEncryptedData($postData),
+            'signature' => $this->generateSignature($postData),
         ];
 
         $url = "{$this->host}/api/dfs/purchase/check/eligibility";
@@ -210,10 +207,10 @@ class Nagad implements PaymentInterface
     /**
      * @throws ConnectionException
      */
-    public function cancelAuthorization(string $merchantId, string $token, array $data): array
+    public function cancelAuthorization(string $token, array $data): array
     {
         $postData = [
-            'merchantId' => $merchantId,
+            'merchantId' => $this->merchantId,
             'customerId' => $data['customer_id'],
             'maskedAccNo' => $data['masked_ac_no'],
             'tokenType' => $data['token_type'],
@@ -222,14 +219,14 @@ class Nagad implements PaymentInterface
         ];
 
         $postDataOrder = [
-            'merchantId' => $merchantId,
-            'sensitiveData' => NagadUtility::encryptDataWithPublicKey(json_encode($postData)),
-            'signature' => NagadUtility::signatureGenerate(json_encode($postData)),
+            'merchantId' => $this->merchantId,
+            'sensitiveData' => $this->getEncryptedData($postData),
+            'signature' => $this->generateSignature($postData),
         ];
 
         $url = "{$this->host}/api/dfs/authorization/cancel";
 
-        return NagadUtility::post($url, $postDataOrder, $token);
+        return NagadUtility::post($url, $postDataOrder, $token, $this->merchantHex, $this->merchantIv);
     }
 
     /**
@@ -250,5 +247,20 @@ class Nagad implements PaymentInterface
     public function cancel(): void
     {
         // TODO: Implement cancel() method.
+    }
+
+    public function generateSignature(array $data): string
+    {
+        return NagadUtility::signatureGenerate($this->merchantPrivateKey, json_encode($data));
+    }
+
+    private function getEncryptedData(array $data): string
+    {
+        return NagadUtility::encryptDataWithPublicKey($this->merchantPublicKey, json_encode($data));
+    }
+
+    private function getDecryptedData(string $encryptedText): array
+    {
+        return json_decode(NagadUtility::decryptDataWithPrivateKey($this->merchantPrivateKey, $encryptedText), true);
     }
 }

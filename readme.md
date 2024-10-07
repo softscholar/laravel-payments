@@ -40,7 +40,7 @@ return [
     'mode' => env('PAYMENT_GATEWAY_MODE', 'sandbox'),
     'gateways' => [
         'nagad' => [
-            'sandbox_mode' => env('NAGAD_MODE', 'sandbox'),
+            'mode' => env('NAGAD_MODE', 'sandbox'),
             'merchant_id' => env('NAGAD_MERCHANT_ID', 'your-merchant-id'),
             'merchant_public_key' => env('NAGAD_PG_PUBLIC_KEY', 'your-merchant-public-key'),
             'merchant_private_key' => env('NAGAD_MERCHANT_PRIVATE_KEY', 'merchant-private-key'),

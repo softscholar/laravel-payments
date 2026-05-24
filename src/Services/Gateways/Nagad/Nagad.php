@@ -8,6 +8,16 @@ use Softscholar\Payment\Contracts\PaymentInterface;
 
 class Nagad implements PaymentInterface
 {
+    private readonly string $merchantId;
+
+    private readonly string $merchantPublicKey;
+
+    private readonly string $merchantPrivateKey;
+
+    private readonly ?string $merchantHex;
+
+    private readonly ?string $merchantIv;
+
     private string $host;
 
     private string $tnx = '';
@@ -15,20 +25,40 @@ class Nagad implements PaymentInterface
     private array $merchantAdditionalInfo = [];
 
     public function __construct(
-        private readonly string $merchantId,
-        private readonly string $merchantPublicKey,
-        private readonly string $merchantPrivateKey,
-        private readonly ?string $merchantHex = '',
-        private readonly ?string $merchantIv = '',
-        private readonly ?string $merchantNumber = '',
+        string|array $configOrMerchantId,
+        ?string $merchantPublicKey = null,
+        ?string $merchantPrivateKey = null,
+        ?string $merchantHex = '',
+        ?string $merchantIv = '',
     ) {
+        if (is_array($configOrMerchantId)) {
+            $this->merchantId = $configOrMerchantId['merchant_id'] ?? '';
+            $this->merchantPublicKey = $configOrMerchantId['merchant_public_key'] ?? '';
+            $this->merchantPrivateKey = $configOrMerchantId['merchant_private_key'] ?? '';
+            $this->merchantHex = $configOrMerchantId['merchant_hex'] ?? '';
+            $this->merchantIv = $configOrMerchantId['merchant_iv'] ?? '';
+            $mode = $configOrMerchantId['mode'] ?? config('spayment.mode', 'sandbox');
+            $endpoint = $configOrMerchantId['api_endpoint'] ?? '';
+        } else {
+            $this->merchantId = $configOrMerchantId;
+            $this->merchantPublicKey = $merchantPublicKey ?? '';
+            $this->merchantPrivateKey = $merchantPrivateKey ?? '';
+            $this->merchantHex = $merchantHex ?? '';
+            $this->merchantIv = $merchantIv ?? '';
+            $mode = config('spayment.mode', 'sandbox');
+            $endpoint = '';
+        }
 
         date_default_timezone_set('Asia/Dhaka');
 
-        if (config('spayment.mode') == 'production' && config('spayment.gateways.nagad.mode') == 'production') {
-            $this->host = 'https://api.mynagad.com/';
+        if (!empty($endpoint)) {
+            $this->host = rtrim($endpoint, '/') . '/';
         } else {
-            $this->host = 'http://sandbox.mynagad.com:10080/remote-payment-gateway-1.0/';
+            if ($mode === 'production') {
+                $this->host = 'https://payment.mynagad.com.bd:38443/payment/';
+            } else {
+                $this->host = 'https://sandbox.mymsg.com.bd/anis/v2/';
+            }
         }
     }
 
@@ -241,12 +271,12 @@ class Nagad implements PaymentInterface
         return NagadUtility::get($url);
     }
 
-    public function refund(): void
+    public function refund(array $data = []): void
     {
         // TODO: Implement refund() method.
     }
 
-    public function cancel(): void
+    public function cancel(array $data = []): void
     {
         // TODO: Implement cancel() method.
     }

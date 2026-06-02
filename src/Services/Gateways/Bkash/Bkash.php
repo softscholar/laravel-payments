@@ -177,7 +177,7 @@ class Bkash implements PaymentInterface
      */
     public function createPayment(array $data): string
     {
-        $payload =  [
+        $payload = [
             'mode' => isset($data['agreementId']) ? '1001' : '1011',
             'payerReference' => (string) ($data['payerReference'] ?? '1'),
             'callbackURL' => $data['callbackURL'] ?? $this->config['callback_url'] ?? '',
@@ -186,6 +186,10 @@ class Bkash implements PaymentInterface
             'intent' => 'sale',
             'merchantInvoiceNumber' => (string) ($data['merchantInvoiceNumber'] ?? ''),
         ];
+
+        if (isset($data['agreementId'])) {
+            $payload['agreementId'] = $data['agreementId'];
+        }
 
         $res = Http::withHeaders([
             'Content-Type' => 'application/json',
@@ -211,17 +215,23 @@ class Bkash implements PaymentInterface
     /**
      * @throws ConnectionException
      */
-    public function executePayment(string $paymentId): array
+    public function executePayment(string $paymentId, string $agreementId = ''): array
     {
+        $payload = [
+            'paymentId' => $paymentId,
+        ];
+
+        if ($agreementId) {
+            $payload['agreementId'] = $agreementId;
+        }
+
         $res = Http::withHeaders([
             'Content-Type' => 'application/json',
             'X-APP-Key' => $this->config['app_key'] ?? '',
             'Authorization' => $this->getToken(),
         ])
             ->withOptions(['verify' => $this->getVerifyOption()])
-            ->post($this->buildUrl('payment/execute'), [
-                'paymentId' => $paymentId,
-            ]);
+            ->post($this->buildUrl('payment/execute'), $payload);
 
         if ($res->failed()) {
             throw new Exception('Failed to execute bKash payment: '.$res->body());
@@ -297,7 +307,7 @@ class Bkash implements PaymentInterface
     {
         $payload = array_merge([
             'mode' => '0000',
-            'callbackURL' => $data['callbackURL'] ?? '',
+            'callbackURL' => $data['callbackURL'] ?? $this->config['agreement_callback_url'] ?? '',
             'payerReference' => $data['payerReference'] ?? '1',
         ], $data);
 

@@ -8,16 +8,6 @@ use Softscholar\Payment\Contracts\PaymentInterface;
 
 class Nagad implements PaymentInterface
 {
-    private readonly string $merchantId;
-
-    private readonly string $merchantPublicKey;
-
-    private readonly string $merchantPrivateKey;
-
-    private readonly ?string $merchantHex;
-
-    private readonly ?string $merchantIv;
-
     private string $host;
 
     private string $tnx = '';
@@ -25,40 +15,15 @@ class Nagad implements PaymentInterface
     private array $merchantAdditionalInfo = [];
 
     public function __construct(
-        string|array $configOrMerchantId,
-        ?string $merchantPublicKey = null,
-        ?string $merchantPrivateKey = null,
-        ?string $merchantHex = '',
-        ?string $merchantIv = '',
+        private readonly array $config
     ) {
-        if (is_array($configOrMerchantId)) {
-            $this->merchantId = $configOrMerchantId['merchant_id'] ?? '';
-            $this->merchantPublicKey = $configOrMerchantId['merchant_public_key'] ?? '';
-            $this->merchantPrivateKey = $configOrMerchantId['merchant_private_key'] ?? '';
-            $this->merchantHex = $configOrMerchantId['merchant_hex'] ?? '';
-            $this->merchantIv = $configOrMerchantId['merchant_iv'] ?? '';
-            $mode = $configOrMerchantId['mode'] ?? config('spayment.mode', 'sandbox');
-            $endpoint = $configOrMerchantId['api_endpoint'] ?? '';
-        } else {
-            $this->merchantId = $configOrMerchantId;
-            $this->merchantPublicKey = $merchantPublicKey ?? '';
-            $this->merchantPrivateKey = $merchantPrivateKey ?? '';
-            $this->merchantHex = $merchantHex ?? '';
-            $this->merchantIv = $merchantIv ?? '';
-            $mode = config('spayment.mode', 'sandbox');
-            $endpoint = '';
-        }
 
         date_default_timezone_set('Asia/Dhaka');
 
-        if (!empty($endpoint)) {
-            $this->host = rtrim($endpoint, '/') . '/';
+        if (($this->config['mode'] ?? 'sandbox') === 'production') {
+            $this->host = 'https://api.mynagad.com/';
         } else {
-            if ($mode === 'production') {
-                $this->host = 'https://payment.mynagad.com.bd:38443/payment/';
-            } else {
-                $this->host = 'https://sandbox.mymsg.com.bd/anis/v2/';
-            }
+            $this->host = 'http://sandbox.mynagad.com:30001/';
         }
     }
 
@@ -72,7 +37,7 @@ class Nagad implements PaymentInterface
         $dateTime = now()->format('YmdHis');
 
         $sensitiveData = [
-            'merchantId' => $this->merchantId,
+            'merchantId' => $this->config['merchant_id'] ?? '',
             'datetime' => $dateTime,
             'orderId' => $orderId,
             'challenge' => NagadUtility::generateRandomString(),
@@ -86,13 +51,13 @@ class Nagad implements PaymentInterface
 
         $requestParams = ['purpose' => $purpose];
 
-        $url = "{$this->host}api/dfs/check-out/initialize/{$this->merchantId}/{$orderId}";
+        $url = $this->buildUrl("check-out/initialize/" . ($this->config['merchant_id'] ?? '') . "/{$orderId}");
         $url .= '?'.http_build_query($requestParams);
 
         if ($token) {
             info('called from nagad tokenized initialize');
 
-            return NagadUtility::post($url, $checkoutData, $token, $this->merchantHex, $this->merchantIv);
+            return NagadUtility::post($url, $checkoutData, $token, $this->config['merchant_hex'] ?? '', $this->config['merchant_iv'] ?? '');
         } else {
             info('called from nagad initialize');
 
@@ -119,7 +84,7 @@ class Nagad implements PaymentInterface
 
         $sensitiveDataOrder = [
             'customerId' => $paymentData['customer_id'] ?? (string) rand(100000, 999999),
-            'merchantId' => $this->merchantId,
+            'merchantId' => $this->config['merchant_id'] ?? '',
             'orderId' => $orderId,
             'currencyCode' => '050',
             'amount' => $paymentData['amount'] ?? 0,
@@ -141,9 +106,9 @@ class Nagad implements PaymentInterface
             'additionalMerchantInfo' => (object) $this->merchantAdditionalInfo,
         ];
 
-        $orderSubmitUrl = "{$this->host}api/dfs/check-out/complete/{$paymentRefId}";
+        $orderSubmitUrl = $this->buildUrl("check-out/complete/{$paymentRefId}");
         if ($token) {
-            $resultDataOrder = NagadUtility::post($orderSubmitUrl, $postDataOrder, $token, $this->merchantHex, $this->merchantIv);
+            $resultDataOrder = NagadUtility::post($orderSubmitUrl, $postDataOrder, $token, $this->config['merchant_hex'] ?? '', $this->config['merchant_iv'] ?? '');
         } else {
             $resultDataOrder = NagadUtility::post($orderSubmitUrl, $postDataOrder, $token);
         }
@@ -160,7 +125,7 @@ class Nagad implements PaymentInterface
      */
     public function checkout(array $data, string $checkoutType = 'regular'): string
     {
-        $merchantId = $this->merchantId;
+        $merchantId = $this->config['merchant_id'] ?? '';
 
         if (! $merchantId) {
             throw new Exception('Merchant ID is required');
@@ -180,7 +145,6 @@ class Nagad implements PaymentInterface
             $data['amount'] = 0;
         } elseif ($checkoutType == 'tokenized') {
             $purpose = 'ECOM_TOKEN_TXN';
-
             if (! $data['token']) {
                 throw new Exception('Token is required for tokenized checkout');
             }
@@ -211,7 +175,7 @@ class Nagad implements PaymentInterface
     public function isEligibleForTokenizedCheckout(string $token, array $data): bool
     {
         $postData = [
-            'merchantId' => $this->merchantId,
+            'merchantId' => $this->config['merchant_id'] ?? '',
             'customerId' => $data['customer_id'],
             'maskedAccNo' => $data['masked_ac_no'],
             'tokenType' => $data['token_type'],
@@ -221,12 +185,12 @@ class Nagad implements PaymentInterface
         ];
 
         $postDataOrder = [
-            'merchantId' => $this->merchantId,
+            'merchantId' => $this->config['merchant_id'] ?? '',
             'sensitiveData' => $this->getEncryptedData($postData),
             'signature' => $this->generateSignature($postData),
         ];
 
-        $url = "{$this->host}/api/dfs/purchase/check/eligibility";
+        $url = $this->buildUrl("purchase/check/eligibility");
         $response = NagadUtility::post($url, $postDataOrder, false, $token);
 
         if (isset($response['eligible']) && $response['eligible'] === true) {
@@ -242,7 +206,7 @@ class Nagad implements PaymentInterface
     public function cancelAuthorization(string $token, array $data): array
     {
         $postData = [
-            'merchantId' => $this->merchantId,
+            'merchantId' => $this->config['merchant_id'] ?? '',
             'customerId' => $data['customer_id'],
             'maskedAccNo' => $data['masked_ac_no'],
             'tokenType' => $data['token_type'],
@@ -251,14 +215,14 @@ class Nagad implements PaymentInterface
         ];
 
         $postDataOrder = [
-            'merchantId' => $this->merchantId,
+            'merchantId' => $this->config['merchant_id'] ?? '',
             'sensitiveData' => $this->getEncryptedData($postData),
             'signature' => $this->generateSignature($postData),
         ];
 
-        $url = "{$this->host}/api/dfs/authorization/cancel";
+        $url = $this->buildUrl("authorization/cancel");
 
-        return NagadUtility::post($url, $postDataOrder, $token, $this->merchantHex, $this->merchantIv);
+        return NagadUtility::post($url, $postDataOrder, $token, $this->config['merchant_hex'] ?? '', $this->config['merchant_iv'] ?? '');
     }
 
     /**
@@ -266,7 +230,7 @@ class Nagad implements PaymentInterface
      */
     public function verify(string $tnxId): array
     {
-        $url = "{$this->host}api/dfs/verify/payment/{$tnxId}";
+        $url = $this->buildUrl("verify/payment/{$tnxId}");
 
         return NagadUtility::get($url);
     }
@@ -283,16 +247,20 @@ class Nagad implements PaymentInterface
 
     public function generateSignature(array $data): string
     {
-        return NagadUtility::signatureGenerate($this->merchantPrivateKey, json_encode($data));
+        return NagadUtility::signatureGenerate($this->config['merchant_private_key'] ?? '', json_encode($data));
     }
 
     private function getEncryptedData(array $data): string
     {
-        return NagadUtility::encryptDataWithPublicKey($this->merchantPublicKey, json_encode($data));
+        return NagadUtility::encryptDataWithPublicKey($this->config['merchant_public_key'] ?? '', json_encode($data));
     }
 
     private function getDecryptedData(string $encryptedText): array
     {
-        return json_decode(NagadUtility::decryptDataWithPrivateKey($this->merchantPrivateKey, $encryptedText), true);
+        return json_decode(NagadUtility::decryptDataWithPrivateKey($this->config['merchant_private_key'] ?? '', $encryptedText), true);
+    }
+    public function buildUrl(string $path = ''): string
+    {
+        return rtrim($this->host, '/') . '/api/dfs/' . ltrim($path, '/');
     }
 }

@@ -141,7 +141,6 @@ class Bkash implements PaymentInterface
         if ($res->failed()) {
             throw new Exception('Failed to retrieve bKash token: '.$res->body());
         }
-
         return $res->json();
     }
 
@@ -204,7 +203,6 @@ class Bkash implements PaymentInterface
         }
 
         $response = $res->json();
-
         if (isset($response['bkashURL'])) {
             return $response['bkashURL'];
         }
@@ -215,7 +213,7 @@ class Bkash implements PaymentInterface
     /**
      * @throws ConnectionException
      */
-    public function executePayment(string $paymentId, string $agreementId = ''): array
+    public function executePayment(string $paymentId, string $agreementId = null): array
     {
         $payload = [
             'paymentId' => $paymentId,

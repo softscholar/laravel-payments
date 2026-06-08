@@ -273,7 +273,7 @@ $payload = [
     'amount' => 100.00,
     'merchantInvoiceNumber' => 'INV-100234',
     'payerReference' => '01712345678', // e.g. Customer mobile number
-    'callbackURL' => route('payments.bkash.callback'),
+    'callbackURL' => route('certificate.payments.callback.bkash.callback', ['subdomain' => $subdomain]),
 ];
 
 // Returns bKash checkout URL to redirect the customer to
@@ -334,7 +334,7 @@ $token = $this->getToken();
 
 $payload = [
     'payerReference' => '01712345678',
-    'callbackURL' => route('payments.bkash.agreement.callback'),
+    'callbackURL' => route('certificate.payments.callback.bkash.agreementCallback', ['subdomain' => $subdomain]),
 ];
 
 // Returns bKash agreement checkout URL to redirect the customer to
@@ -386,7 +386,7 @@ $payload = [
     'amount' => 250.00,
     'merchantInvoiceNumber' => 'INV-20050',
     'payerReference' => '01712345678',
-    'callbackURL' => route('payments.bkash.callback'), // Will redirect here on success
+    'callbackURL' => route('certificate.payments.callback.bkash.callback', ['subdomain' => $subdomain]), // Will redirect here on success
 ];
 
 // Returns payment confirmation/checkout URL
